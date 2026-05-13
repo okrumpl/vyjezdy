@@ -20,14 +20,45 @@ export const classifyEventType = (title: string): string => {
   return 'Ostatní';
 };
 
-// Generování počasí
+// Generování počasí (Fallback pro mock data)
 const generateWeather = () => {
   const conditions = ['Jasno', 'Polojasno', 'Oblačno', 'Déšť', 'Silný vítr', 'Sněžení'];
   return {
-    temp: Math.floor(Math.random() * 35) - 5, // -5 to 30
+    temp: Math.floor(Math.random() * 35) - 5,
     condition: conditions[Math.floor(Math.random() * conditions.length)],
-    wind: Math.floor(Math.random() * 80) // 0 to 80 km/h
+    wind: Math.floor(Math.random() * 80)
   };
+};
+
+const decodeWMO = (code: number) => {
+  if (code === 0) return 'Jasno';
+  if (code === 1 || code === 2) return 'Polojasno';
+  if (code === 3) return 'Zataženo';
+  if (code >= 45 && code <= 48) return 'Mlha';
+  if (code >= 51 && code <= 67) return 'Déšť';
+  if (code >= 71 && code <= 77) return 'Sněžení';
+  if (code >= 80 && code <= 82) return 'Přeháňky';
+  if (code >= 95) return 'Bouřka';
+  return 'Oblačno';
+};
+
+const fetchRealWeather = async (lat: number, lon: number) => {
+  try {
+    const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.current_weather) {
+        return {
+          temp: Math.round(data.current_weather.temperature),
+          condition: decodeWMO(data.current_weather.weathercode),
+          wind: Math.round(data.current_weather.windspeed)
+        };
+      }
+    }
+  } catch (e) {
+    console.error("Open-Meteo selhalo", e);
+  }
+  return generateWeather(); // fallback
 };
 
 // Generování rozsáhlejších ukázkových dat pro statistiky a mapu
@@ -97,7 +128,7 @@ const assignCoords = (location: string): [number, number] | undefined => {
 
 export const fetchDispatches = async (): Promise<DispatchEvent[]> => {
   try {
-    const response = await fetch('/api/hzs/rss-aktualni-vyjezdy.php');
+    const response = await fetch('/api/hzs/vyjezdy/rss-aktualni-vyjezdy.php');
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
     const text = await response.text();
     const parser = new DOMParser();
@@ -109,7 +140,7 @@ export const fetchDispatches = async (): Promise<DispatchEvent[]> => {
       return fullMockData;
     }
     
-    const liveData: DispatchEvent[] = Array.from(items).map((item, index) => {
+    const liveDataPromises = Array.from(items).map(async (item, index) => {
       const fullTitle = item.querySelector('title')?.textContent || '';
       let title = fullTitle;
       let location = 'Neznámá lokace';
@@ -128,6 +159,10 @@ export const fetchDispatches = async (): Promise<DispatchEvent[]> => {
       let cleanDescription = rawDescription.replace(/<[^>]*>?/gm, '').trim();
       cleanDescription = cleanDescription.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&');
       
+      const coords = assignCoords(location);
+      // Fetch reálné počasí jen pro žhavé (live) události, šetříme requesty
+      const weather = coords ? await fetchRealWeather(coords[0], coords[1]) : generateWeather();
+
       return {
         id: `live-${index}`,
         type: classifyEventType(title),
@@ -136,10 +171,12 @@ export const fetchDispatches = async (): Promise<DispatchEvent[]> => {
         description: cleanDescription,
         time: pubDate,
         source: 'live',
-        coords: assignCoords(location),
-        weather: generateWeather()
-      };
+        coords: coords,
+        weather: weather
+      } as DispatchEvent;
     });
+    
+    const liveData = await Promise.all(liveDataPromises);
     
     // Smícháme Live data (aktuální) s historií Mock dat, aby grafy nebyly prázdné
     const combined = [...liveData, ...fullMockData.filter(d => d.time < liveData[liveData.length-1]?.time || new Date())];
