@@ -5,6 +5,7 @@ import { SidebarFilter } from './components/SidebarFilter'
 import { MapView } from './components/MapView'
 import { StatisticsView } from './components/StatisticsView'
 import { EventIcon, getTypeConfig } from './components/EventIcon'
+import { EventDetailDrawer } from './components/EventDetailDrawer'
 import {
   Map as MapIcon, List, BarChart3, Search, X,
   Navigation, MapPin, Cloud, Wind, Thermometer,
@@ -117,10 +118,14 @@ function App() {
   }
 
   // Share
-  const shareApp = async () => {
+  const handleShare = async (dispatch?: DispatchEvent) => {
     const url = window.location.href
+    const shareData = dispatch 
+      ? { title: dispatch.title || dispatch.type, text: `${dispatch.type} – ${dispatch.location}`, url }
+      : { title: 'HZS ČR Dashboard', url }
+
     if (navigator.share) {
-      try { await navigator.share({ title: 'HZS ČR Dashboard', url }) } catch { /* ignored */ }
+      try { await navigator.share(shareData) } catch { /* ignored */ }
     } else {
       await navigator.clipboard.writeText(url)
       setToastMessage({ title: '📋 Odkaz zkopírován', desc: url })
@@ -129,15 +134,8 @@ function App() {
   }
 
   // ===== Filtry =====
-  const filteredDispatches = useMemo(() => {
+  const baseFilteredDispatches = useMemo(() => {
     let result = dispatches
-    if (selectedType !== 'Všechny') {
-      result = result.filter(d =>
-        selectedType === 'Záchrana osob'
-          ? d.type === 'Záchrana osob' || d.type === 'Záchrana osob a zvířat'
-          : d.type === selectedType
-      )
-    }
     if (selectedDistrict !== 'Všechny okresy') {
       result = result.filter(d => d.location.toLowerCase().includes(selectedDistrict.toLowerCase()))
     }
@@ -150,7 +148,19 @@ function App() {
       )
     }
     return result
-  }, [dispatches, selectedType, selectedDistrict, searchQuery])
+  }, [dispatches, selectedDistrict, searchQuery])
+
+  const filteredDispatches = useMemo(() => {
+    let result = baseFilteredDispatches
+    if (selectedType !== 'Všechny') {
+      result = result.filter(d =>
+        selectedType === 'Záchrana osob'
+          ? d.type === 'Záchrana osob' || d.type === 'Záchrana osob a zvířat'
+          : d.type === selectedType
+      )
+    }
+    return result
+  }, [baseFilteredDispatches, selectedType])
 
   const activeDispatches = useMemo(() => {
     const limit = new Date(Date.now() - 12 * 60 * 60 * 1000)
@@ -158,23 +168,11 @@ function App() {
   }, [filteredDispatches])
 
   const counts = useMemo(() => {
-    let src = dispatches
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase()
-      src = src.filter(d =>
-        d.title.toLowerCase().includes(q) ||
-        d.location.toLowerCase().includes(q) ||
-        (d.description && d.description.toLowerCase().includes(q))
-      )
-    }
-    if (selectedDistrict !== 'Všechny okresy') {
-      src = src.filter(d => d.location.toLowerCase().includes(selectedDistrict.toLowerCase()))
-    }
-    return src.reduce((acc, curr) => {
+    return baseFilteredDispatches.reduce((acc, curr) => {
       acc[curr.type] = (acc[curr.type] || 0) + 1
       return acc
     }, {} as Record<string, number>)
-  }, [dispatches, searchQuery, selectedDistrict])
+  }, [baseFilteredDispatches])
 
   const hasActiveFilters = selectedType !== 'Všechny' || selectedDistrict !== 'Všechny okresy' || searchQuery !== ''
 
@@ -211,7 +209,7 @@ function App() {
             >
               {notificationsEnabled ? <Bell size={18} /> : <BellOff size={18} />}
             </button>
-            <button className="icon-btn" onClick={shareApp} title="Sdílet aplikaci">
+            <button className="icon-btn" onClick={() => handleShare()} title="Sdílet aplikaci">
               <Share2 size={18} />
             </button>
             <button
@@ -371,102 +369,11 @@ function App() {
 
       {/* Detail Drawer */}
       {selectedDispatch && (
-        <div className="drawer-overlay" onClick={() => setSelectedDispatch(null)}>
-          <div className="drawer" onClick={e => e.stopPropagation()}>
-            <div className="drawer-header">
-              <div className="badge" style={{ background: getTypeConfig(selectedDispatch.type).bg, color: getTypeConfig(selectedDispatch.type).color, border: `1px solid ${getTypeConfig(selectedDispatch.type).color}40` }}>
-                <EventIcon type={selectedDispatch.type} size={16} animated={selectedDispatch.type === 'Požár'} />
-                <span style={{ marginLeft: '6px' }}>{selectedDispatch.type}</span>
-              </div>
-              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                <button
-                  className="icon-btn"
-                  onClick={() => {
-                    if (navigator.share) {
-                      navigator.share({ title: selectedDispatch.title, text: `${selectedDispatch.type} – ${selectedDispatch.location}`, url: window.location.href })
-                    }
-                  }}
-                  title="Sdílet"
-                >
-                  <Share2 size={18} />
-                </button>
-                <button onClick={() => setSelectedDispatch(null)} className="icon-btn" title="Zavřít">
-                  <X size={20} />
-                </button>
-              </div>
-            </div>
-
-            <div className="drawer-content">
-              <h2 style={{ fontSize: 'clamp(1.3rem, 5vw, 1.8rem)', lineHeight: 1.2 }}>
-                {selectedDispatch.title || selectedDispatch.type}
-              </h2>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.5rem' }}>
-                <p style={{ color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <Navigation size={16} /> {selectedDispatch.location}
-                </p>
-                <a
-                  href={`https://www.google.com/maps/search/?api=1&query=${selectedDispatch.coords ? `${selectedDispatch.coords[0]},${selectedDispatch.coords[1]}` : encodeURIComponent(selectedDispatch.location)}`}
-                  target="_blank" rel="noreferrer"
-                  className="nav-tab"
-                  style={{ background: '#3b82f6', color: 'white', padding: '0.4rem 0.8rem', textDecoration: 'none' }}
-                >
-                  <MapPin size={14} /> Navigovat
-                </a>
-              </div>
-
-              <div className="glass-panel" style={{ padding: '1.25rem' }}>
-                <h3 style={{ fontSize: '0.85rem', marginBottom: '0.5rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Čas události</h3>
-                <p>{selectedDispatch.time.toLocaleDateString('cs-CZ', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
-                <p><strong style={{ fontSize: '1.2rem' }}>{selectedDispatch.time.toLocaleTimeString('cs-CZ')}</strong></p>
-              </div>
-
-              {selectedDispatch.weather && (
-                <div className="glass-panel" style={{ padding: '1.25rem' }}>
-                  <h3 style={{ fontSize: '0.85rem', marginBottom: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Počasí na místě</h3>
-                  <div style={{ display: 'flex', gap: '1.25rem', flexWrap: 'wrap', fontSize: '1rem' }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <Thermometer size={16} color="#ef4444" /> {selectedDispatch.weather.temp}°C
-                    </span>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <Cloud size={16} color="#3b82f6" /> {selectedDispatch.weather.condition}
-                    </span>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <Wind size={16} color="#94a3b8" /> {selectedDispatch.weather.wind} km/h
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              {selectedDispatch.description && selectedDispatch.description !== selectedDispatch.type && (
-                <div className="glass-panel" style={{ padding: '1.25rem' }}>
-                  <h3 style={{ fontSize: '0.85rem', marginBottom: '0.5rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Popis</h3>
-                  <p style={{ lineHeight: 1.6 }}>{selectedDispatch.description}</p>
-                </div>
-              )}
-
-              <div className="glass-panel" style={{ padding: '1.25rem' }}>
-                <h3 style={{ fontSize: '0.85rem', marginBottom: '1rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Průběh zásahu</h3>
-                <ul style={{ listStyle: 'none', padding: 0, margin: 0, position: 'relative' }}>
-                  <div style={{ position: 'absolute', left: '7px', top: '10px', bottom: '10px', width: '2px', backgroundColor: 'var(--surface-border)' }} />
-                  {[
-                    { label: 'Ohlášení události', time: new Date(selectedDispatch.time.getTime() - 1000 * 60 * 5).toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' }), active: true },
-                    { label: 'Výjezd jednotek', time: selectedDispatch.time.toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' }), active: true },
-                    { label: 'Příjezd na místo', time: new Date(selectedDispatch.time.getTime() + 1000 * 60 * 8).toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' }), active: selectedDispatch.time.getTime() + 1000 * 60 * 8 < Date.now() },
-                    { label: 'Likvidace', time: '–', active: false }
-                  ].map((step, idx) => (
-                    <li key={idx} style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', opacity: step.active ? 1 : 0.4 }}>
-                      <div style={{ width: '16px', height: '16px', borderRadius: '50%', backgroundColor: step.active ? '#3b82f6' : 'var(--surface-color)', border: '2px solid var(--surface-border)', zIndex: 2, flexShrink: 0, marginTop: '2px' }} />
-                      <div>
-                        <strong style={{ display: 'block', fontSize: '0.9rem' }}>{step.label}</strong>
-                        <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{step.time}</span>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-          </div>
-        </div>
+        <EventDetailDrawer 
+          dispatch={selectedDispatch} 
+          onClose={() => setSelectedDispatch(null)} 
+          onShare={handleShare} 
+        />
       )}
 
       {/* Toast */}

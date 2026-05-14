@@ -105,7 +105,7 @@ const getIconForType = (type: string) => {
   
   return L.divIcon({
     className: 'custom-div-icon',
-    html: `<div style="background-color: ${color}; width: 14px; height: 14px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 4px rgba(0,0,0,0.5);"></div>`,
+    html: `<div style="background-color: ${color}; width: 14px; height: 14px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 10px ${color}, inset 0 0 4px rgba(255,255,255,0.8);"></div>`,
     iconSize: [14, 14],
     iconAnchor: [7, 7]
   });
