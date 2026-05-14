@@ -69,9 +69,14 @@ const generateMockData = (): DispatchEvent[] => {
     { name: 'Svitavy', coords: [49.7565, 16.4682] as [number, number] },
     { name: 'Ústí nad Orlicí', coords: [49.9739, 16.3933] as [number, number] },
     { name: 'Chrudim', coords: [49.9515, 15.7958] as [number, number] },
-    { name: 'Přemouč', coords: [50.0400, 15.5658] as [number, number] },
-    { name: 'Hlinsko', coords: [49.7618, 15.9076] as [number, number] }
+    { name: 'Přelouč', coords: [50.0394, 15.5628] as [number, number] },
+    { name: 'Hlinsko', coords: [49.7618, 15.9076] as [number, number] },
+    { name: 'Polička', coords: [49.7134, 16.2655] as [number, number] },
+    { name: 'Moravská Třebová', coords: [49.7588, 16.6648] as [number, number] },
+    { name: 'Česká Třebová', coords: [49.9024, 16.4442] as [number, number] },
+    { name: 'Heřmanův Městec', coords: [49.9399, 15.6695] as [number, number] },
   ];
+
 
   const data: DispatchEvent[] = [];
   const now = new Date();
@@ -115,16 +120,45 @@ const generateMockData = (): DispatchEvent[] => {
 
 const fullMockData = generateMockData();
 
-// Pokusíme se souřadnice odhadnout i pro live data (pro zjednodušení použijeme hrubý slovník měst)
-const assignCoords = (location: string): [number, number] | undefined => {
-  const l = location.toLowerCase();
-  if (l.includes('pardubice')) return [50.0343, 15.7704];
-  if (l.includes('svitavy')) return [49.7565, 16.4682];
-  if (l.includes('ústí')) return [49.9739, 16.3933];
-  if (l.includes('chrudim')) return [49.9515, 15.7958];
-  // Default to somewhere near Pardubice if not found
-  return [50.0343 + (Math.random()-0.5)*0.1, 15.7704 + (Math.random()-0.5)*0.1];
+// Rozsáhlý slovník souradnic českých měst
+const CITY_COORDS: Record<string, [number, number]> = {
+  'pardubice': [50.0343, 15.7704],
+  'svitavy': [49.7565, 16.4682],
+  'ústí nad orlicí': [49.9739, 16.3933],
+  'chrudim': [49.9515, 15.7958],
+  'přelouč': [50.0394, 15.5628],
+  'hlinsko': [49.7618, 15.9076],
+  'politička': [49.7134, 16.2655],
+  'moravská třebová': [49.7588, 16.6648],
+  'česká třebová': [49.9024, 16.4442],
+  'hradeč nad svitavou': [49.7790, 16.4834],
+  'prachovice': [49.9235, 15.7558],
+  'heřmanův městec': [49.9399, 15.6695],
+  'chvaletice': [50.0310, 15.4245],
+  'morašice': [49.8960, 15.8010],
+  'moravany': [50.0001, 15.7200],
+  'jařoměřice': [49.9100, 15.7800],
+  'opatovice nad labem': [50.0750, 15.7460],
+  'přelouč - mělice': [50.0394, 15.5628],
+  'miřetice': [49.8545, 15.7960],
+  'polička': [49.7134, 16.2655],
+  'hráf': [50.0343, 15.7704],
+  'hradec králové': [50.2092, 15.8327],
+  'prachůvá': [50.0343, 15.7704],
+  'semtin': [50.0200, 15.8000],
+  'zdechovice': [50.0060, 15.5560],
 };
+
+const assignCoords = (location: string): [number, number] => {
+  const l = location.toLowerCase();
+  // Zkusit přesnou shodu
+  for (const [key, coords] of Object.entries(CITY_COORDS)) {
+    if (l.includes(key)) return coords;
+  }
+  // Default - někde ve středních Čechách s náhodným jitterem
+  return [49.95 + (Math.random() - 0.5) * 0.4, 16.0 + (Math.random() - 0.5) * 0.6];
+};
+
 
 export const fetchDispatches = async (): Promise<DispatchEvent[]> => {
   try {
