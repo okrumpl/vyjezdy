@@ -6,8 +6,8 @@ export interface DispatchEvent {
   description: string;
   time: Date;
   source: 'live' | 'mock';
-  coords?: [number, number]; // Added coordinates for map
-  weather?: { temp: number; condition: string; wind: number }; // Simulated weather
+  coords?: [number, number];
+  weather?: { temp: number; condition: string; wind: number };
 }
 
 export const classifyEventType = (title: string): string => {
@@ -15,24 +15,26 @@ export const classifyEventType = (title: string): string => {
   if (t.includes('požár')) return 'Požár';
   if (t.includes('dopravní nehoda')) return 'Dopravní nehoda';
   if (t.includes('technická pomoc')) return 'Technická pomoc';
+  if (t.includes('záchrana')) return 'Záchrana osob';
   if (t.includes('únik nebezpečných látek') || t.includes('únik')) return 'Únik látek';
   if (t.includes('planý poplach')) return 'Planý poplach';
   return 'Ostatní';
 };
 
-// Generování počasí (Fallback pro mock data)
+// ===================== POČASÍ =====================
+
 const generateWeather = () => {
   const conditions = ['Jasno', 'Polojasno', 'Oblačno', 'Déšť', 'Silný vítr', 'Sněžení'];
   return {
-    temp: Math.floor(Math.random() * 35) - 5,
+    temp: Math.floor(Math.random() * 25) + 5,
     condition: conditions[Math.floor(Math.random() * conditions.length)],
-    wind: Math.floor(Math.random() * 80)
+    wind: Math.floor(Math.random() * 40)
   };
 };
 
 const decodeWMO = (code: number) => {
   if (code === 0) return 'Jasno';
-  if (code === 1 || code === 2) return 'Polojasno';
+  if (code <= 2) return 'Polojasno';
   if (code === 3) return 'Zataženo';
   if (code >= 45 && code <= 48) return 'Mlha';
   if (code >= 51 && code <= 67) return 'Déšť';
@@ -42,26 +44,86 @@ const decodeWMO = (code: number) => {
   return 'Oblačno';
 };
 
+const weatherCache: Map<string, { data: { temp: number; condition: string; wind: number }, ts: number }> = new Map();
+
 const fetchRealWeather = async (lat: number, lon: number) => {
+  const key = `${lat.toFixed(2)},${lon.toFixed(2)}`;
+  const cached = weatherCache.get(key);
+  if (cached && Date.now() - cached.ts < 15 * 60 * 1000) return cached.data;
+
   try {
-    const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`);
+    const res = await fetch(
+      `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&wind_speed_unit=kmh`,
+      { signal: AbortSignal.timeout(5000) }
+    );
     if (res.ok) {
       const data = await res.json();
       if (data.current_weather) {
-        return {
+        const result = {
           temp: Math.round(data.current_weather.temperature),
           condition: decodeWMO(data.current_weather.weathercode),
           wind: Math.round(data.current_weather.windspeed)
         };
+        weatherCache.set(key, { data: result, ts: Date.now() });
+        return result;
       }
     }
   } catch (e) {
-    console.error("Open-Meteo selhalo", e);
+    // silently fall back
   }
-  return generateWeather(); // fallback
+  return generateWeather();
 };
 
-// Generování rozsáhlejších ukázkových dat pro statistiky a mapu
+// ===================== SOUŘADNICE =====================
+
+const CITY_COORDS: Record<string, [number, number]> = {
+  'pardubice': [50.0343, 15.7704],
+  'svitavy': [49.7565, 16.4682],
+  'ústí nad orlicí': [49.9739, 16.3933],
+  'chrudim': [49.9515, 15.7958],
+  'přelouč': [50.0394, 15.5628],
+  'hlinsko': [49.7618, 15.9076],
+  'polička': [49.7134, 16.2655],
+  'moravská třebová': [49.7588, 16.6648],
+  'česká třebová': [49.9024, 16.4442],
+  'hradec nad svitavou': [49.7790, 16.4834],
+  'prachovice': [49.9235, 15.7558],
+  'heřmanův městec': [49.9399, 15.6695],
+  'chvaletice': [50.0310, 15.4245],
+  'morašice': [49.8960, 15.8010],
+  'moravany': [50.0001, 15.7200],
+  'jaroměřice': [49.9100, 15.7800],
+  'opatovice nad labem': [50.0750, 15.7460],
+  'miřetice': [49.8545, 15.7960],
+  'hradec králové': [50.2092, 15.8327],
+  'semtín': [50.0200, 15.8000],
+  'zdechovice': [50.0060, 15.5560],
+  'litomyšl': [49.8714, 16.3119],
+  'lanškroun': [49.9123, 16.6129],
+  'žamberk': [50.0850, 16.4684],
+  'vysoké mýto': [49.9548, 16.1627],
+  'králíky': [50.0853, 16.7608],
+  'seč': [49.8557, 15.6462],
+  'skuteč': [49.8449, 16.0150],
+  'holice': [50.0647, 15.9985],
+  'přelouč - ': [50.0394, 15.5628],
+  'svitavy - ': [49.7565, 16.4682],
+  'pardubice - ': [50.0343, 15.7704],
+  'chrudim - ': [49.9515, 15.7958],
+};
+
+const assignCoords = (location: string): [number, number] => {
+  const l = location.toLowerCase();
+  for (const [key, coords] of Object.entries(CITY_COORDS)) {
+    if (l.includes(key.replace(' - ', ''))) return coords;
+    if (l.startsWith(key.split(' - ')[0])) return coords;
+  }
+  // Fallback – střed Pardubického kraje s jitterem
+  return [49.95 + (Math.random() - 0.5) * 0.5, 16.0 + (Math.random() - 0.5) * 0.8];
+};
+
+// ===================== MOCK DATA (jen pro historické statistiky) =====================
+
 const generateMockData = (): DispatchEvent[] => {
   const types = ['Požár', 'Dopravní nehoda', 'Technická pomoc', 'Únik látek', 'Planý poplach', 'Ostatní'];
   const locations = [
@@ -77,38 +139,29 @@ const generateMockData = (): DispatchEvent[] => {
     { name: 'Heřmanův Městec', coords: [49.9399, 15.6695] as [number, number] },
   ];
 
-
   const data: DispatchEvent[] = [];
   const now = new Date();
-  
-  // Přidáme 150 fiktivních historických i nedávných událostí napříč posledními 3 lety
-  for (let i = 0; i < 150; i++) {
+
+  // Generujeme POUZE historická data starší než 7 dní – nikdy nebudou v aktuálním feedu
+  for (let i = 0; i < 200; i++) {
     const type = types[Math.floor(Math.random() * types.length)];
     const loc = locations[Math.floor(Math.random() * locations.length)];
-    
-    // Zaručíme, že prvních 20 událostí bude aktivních (mladších než 12 hodin) pro testování mapy a feedu
-    let time: Date;
-    if (i < 20) {
-      // V rámci posledních 11 hodin
-      time = new Date(now.getTime() - Math.random() * 1000 * 60 * 60 * 11);
-    } else {
-      // Zbytek v rámci 3 let
-      time = new Date(now.getTime() - Math.random() * 1000 * 60 * 60 * 24 * 365 * 3);
-    }
-    
-    // Slight jitter to coordinates so they don't overlap exactly
+    // Všechna mock data jsou 8–1000 dní stará
+    const daysAgo = 8 + Math.random() * 992;
+    const time = new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000);
+
     const jitteredCoords: [number, number] = [
-      loc.coords[0] + (Math.random() - 0.5) * 0.05,
-      loc.coords[1] + (Math.random() - 0.5) * 0.05
+      loc.coords[0] + (Math.random() - 0.5) * 0.08,
+      loc.coords[1] + (Math.random() - 0.5) * 0.08
     ];
 
     data.push({
       id: `mock-${i}`,
-      type: type,
-      title: `${type.toUpperCase()} - ${loc.name}`,
+      type,
+      title: type,
       location: loc.name,
-      description: `Ukázková data pro událost typu ${type} v obci ${loc.name}.`,
-      time: time,
+      description: `Historická událost – ${type.toLowerCase()} v obci ${loc.name}.`,
+      time,
       source: 'mock',
       coords: jitteredCoords,
       weather: generateWeather()
@@ -120,123 +173,118 @@ const generateMockData = (): DispatchEvent[] => {
 
 const fullMockData = generateMockData();
 
-// Rozsáhlý slovník souradnic českých měst
-const CITY_COORDS: Record<string, [number, number]> = {
-  'pardubice': [50.0343, 15.7704],
-  'svitavy': [49.7565, 16.4682],
-  'ústí nad orlicí': [49.9739, 16.3933],
-  'chrudim': [49.9515, 15.7958],
-  'přelouč': [50.0394, 15.5628],
-  'hlinsko': [49.7618, 15.9076],
-  'politička': [49.7134, 16.2655],
-  'moravská třebová': [49.7588, 16.6648],
-  'česká třebová': [49.9024, 16.4442],
-  'hradeč nad svitavou': [49.7790, 16.4834],
-  'prachovice': [49.9235, 15.7558],
-  'heřmanův městec': [49.9399, 15.6695],
-  'chvaletice': [50.0310, 15.4245],
-  'morašice': [49.8960, 15.8010],
-  'moravany': [50.0001, 15.7200],
-  'jařoměřice': [49.9100, 15.7800],
-  'opatovice nad labem': [50.0750, 15.7460],
-  'přelouč - mělice': [50.0394, 15.5628],
-  'miřetice': [49.8545, 15.7960],
-  'polička': [49.7134, 16.2655],
-  'hráf': [50.0343, 15.7704],
-  'hradec králové': [50.2092, 15.8327],
-  'prachůvá': [50.0343, 15.7704],
-  'semtin': [50.0200, 15.8000],
-  'zdechovice': [50.0060, 15.5560],
-};
+// ===================== RSS PARSER – robustní regex místo DOMParser =====================
+// DOMParser v některých prohlížečích selhává na RSS s atom: namespace nebo CDATA
 
-const assignCoords = (location: string): [number, number] => {
-  const l = location.toLowerCase();
-  // Zkusit přesnou shodu
-  for (const [key, coords] of Object.entries(CITY_COORDS)) {
-    if (l.includes(key)) return coords;
+const parseRSSItem = (itemText: string, index: number): DispatchEvent | null => {
+  try {
+    // Extrakce titulku z CDATA nebo plain textu
+    const titleMatch = itemText.match(/<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/title>/s);
+    const fullTitle = titleMatch ? titleMatch[1].trim() : '';
+
+    // Extrakce descriptionu – obsahuje HTML s alt="" typem
+    const descMatch = itemText.match(/<description>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/description>/s);
+    const rawDesc = descMatch ? descMatch[1] : '';
+
+    // Typ události z alt atributu ikony
+    const altMatch = rawDesc.match(/alt="([^"]+)"/);
+    const typeText = altMatch ? altMatch[1].trim() : '';
+
+    // Popis bez HTML tagů
+    let cleanDescription = rawDesc.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').trim();
+    if (!cleanDescription) cleanDescription = typeText || 'Výjezd hasičů';
+
+    // Datum
+    const dateMatch = itemText.match(/<pubDate>(.*?)<\/pubDate>/);
+    const pubDate = dateMatch ? new Date(dateMatch[1].trim()) : new Date();
+
+    // Link pro ID
+    const guidMatch = itemText.match(/<guid[^>]*>(.*?)<\/guid>/);
+    const id = guidMatch ? `live-${guidMatch[1].trim().split('id=')[1]?.split('#')[0] || index}` : `live-${index}`;
+
+    // Lokace je v titulku (nový formát HZS: jen název místa)
+    const location = fullTitle;
+
+    // Typ eventu
+    const type = classifyEventType(typeText || fullTitle);
+    const displayTitle = typeText || type;
+
+    const coords = assignCoords(location);
+
+    return {
+      id,
+      type,
+      title: displayTitle,
+      location,
+      description: cleanDescription,
+      time: pubDate,
+      source: 'live',
+      coords,
+      weather: undefined // bude doplněno asynchronně
+    };
+  } catch (e) {
+    console.error('Chyba parsování položky:', e);
+    return null;
   }
-  // Default - někde ve středních Čechách s náhodným jitterem
-  return [49.95 + (Math.random() - 0.5) * 0.4, 16.0 + (Math.random() - 0.5) * 0.6];
 };
 
+// ===================== HLAVNÍ FUNKCE =====================
 
 export const fetchDispatches = async (): Promise<DispatchEvent[]> => {
   try {
-    const response = await fetch('/api/hzs/vyjezdy/rss-aktualni-vyjezdy.php');
-    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-    const text = await response.text();
-    const parser = new DOMParser();
-    const xml = parser.parseFromString(text, 'text/xml');
-    
-    const items = xml.querySelectorAll('item');
-    if (items.length === 0) {
-      console.warn("No items found, using mock data");
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+
+    const response = await fetch('/api/hzs/vyjezdy/rss-aktualni-vyjezdy.php', {
+      signal: controller.signal,
+      headers: { 'Accept': 'application/xml, text/xml, */*' },
+      cache: 'no-store'
+    });
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      console.warn(`RSS fetch selhal: HTTP ${response.status}`);
       return fullMockData;
     }
-    
-    const liveDataPromises = Array.from(items).map(async (item, index) => {
-      const fullTitle = item.querySelector('title')?.textContent || '';
-      const rawDescription = item.querySelector('description')?.textContent || '';
-      
-      // 1. Získáme Typ události z "alt" tagu obrázku v popisu
-      let typeText = '';
-      const altMatch = rawDescription.match(/alt="([^"]+)"/);
-      if (altMatch) {
-        typeText = altMatch[1];
-      }
 
-      // 2. Lokace je nyní obsažena přímo v titulku zprávy.
-      // Pro jistotu zkontrolujeme, zda se nevrátili ke starému formátu s pomlčkou
-      let titleForUI = typeText || classifyEventType(fullTitle); 
-      let location = fullTitle.trim();
-      
-      // Fallback pro starý formát (kdyby náhodou)
-      if (fullTitle.includes(' - ') && !typeText) {
-        const parts = fullTitle.split(' - ');
-        titleForUI = parts[0].trim();
-        location = parts.slice(1).join(' - ').trim();
-      }
+    const text = await response.text();
 
-      const pubDateStr = item.querySelector('pubDate')?.textContent || '';
-      const pubDate = pubDateStr ? new Date(pubDateStr) : new Date();
+    // Robustní regex extrakce – nepotřebuje DOMParser
+    const itemMatches = text.match(/<item>([\s\S]*?)<\/item>/g);
 
+    if (!itemMatches || itemMatches.length === 0) {
+      console.warn('RSS: žádné položky nenalezeny. Délka odpovědi:', text.length);
+      return fullMockData;
+    }
 
-      // Strip HTML tags safely and decode HTML entities if any basic ones exist
-      let cleanDescription = rawDescription.replace(/<[^>]*>?/gm, '').trim();
-      cleanDescription = cleanDescription.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&');
-      // If description is empty, use type as description
-      if (!cleanDescription) {
-        cleanDescription = titleForUI;
-      }
-      
-      const coords = assignCoords(location);
-      const weather = coords ? await fetchRealWeather(coords[0], coords[1]) : generateWeather();
+    console.log(`RSS: načteno ${itemMatches.length} live výjezdů`);
 
-      return {
-        id: `live-${index}`,
-        type: classifyEventType(titleForUI),
-        title: titleForUI,
-        location: location,
-        description: cleanDescription,
-        time: pubDate,
-        source: 'live',
-        coords: coords,
-        weather: weather
-      } as DispatchEvent;
-    });
-    
-    const liveData = await Promise.all(liveDataPromises);
-    
-    // Mock data přidáme POUZE jako historická (starší než 7 dní)
-    // aby nepřebila live data v aktuálním feedu a statistikách
+    // Parsujeme položky
+    const parsedItems = itemMatches
+      .map((item, i) => parseRSSItem(item, i))
+      .filter((item): item is DispatchEvent => item !== null);
+
+    // Asynchronně stáhneme počasí (s cache, takže to nebude pomalé)
+    const liveDataWithWeather = await Promise.all(
+      parsedItems.map(async (item) => {
+        if (item.coords) {
+          item.weather = await fetchRealWeather(item.coords[0], item.coords[1]);
+        } else {
+          item.weather = generateWeather();
+        }
+        return item;
+      })
+    );
+
+    // Přidáme historická mock data (>7 dní) pro statistiky
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const historicalMock = fullMockData.filter(d => d.time < sevenDaysAgo);
-    const combined = [...liveData, ...historicalMock];
+
+    const combined = [...liveDataWithWeather, ...historicalMock];
     return combined.sort((a, b) => b.time.getTime() - a.time.getTime());
 
-    
   } catch (error) {
-    console.warn("Failed to fetch live data, using complete mock history.", error);
+    console.warn('fetchDispatches selhal, používám mock data:', error);
     return fullMockData;
   }
 };
