@@ -31,7 +31,8 @@ function App() {
       }
 
       setDispatches(data)
-      setIsLive(data.length > 0 && data[0].source === 'live')
+      setIsLive(data.some(d => d.source === 'live'))
+
       setLoading(false)
     }
 

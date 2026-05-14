@@ -227,9 +227,13 @@ export const fetchDispatches = async (): Promise<DispatchEvent[]> => {
     
     const liveData = await Promise.all(liveDataPromises);
     
-    // Smícháme Live data (aktuální) s historií Mock dat, aby grafy nebyly prázdné
-    const combined = [...liveData, ...fullMockData.filter(d => d.time < liveData[liveData.length-1]?.time || new Date())];
+    // Mock data přidáme POUZE jako historická (starší než 7 dní)
+    // aby nepřebila live data v aktuálním feedu a statistikách
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const historicalMock = fullMockData.filter(d => d.time < sevenDaysAgo);
+    const combined = [...liveData, ...historicalMock];
     return combined.sort((a, b) => b.time.getTime() - a.time.getTime());
+
     
   } catch (error) {
     console.warn("Failed to fetch live data, using complete mock history.", error);
