@@ -142,31 +142,46 @@ export const fetchDispatches = async (): Promise<DispatchEvent[]> => {
     
     const liveDataPromises = Array.from(items).map(async (item, index) => {
       const fullTitle = item.querySelector('title')?.textContent || '';
-      let title = fullTitle;
-      let location = 'Neznámá lokace';
-      const parts = fullTitle.split('-');
-      if (parts.length >= 2) {
-        title = parts[1].trim();
-        if (parts.length >= 3) {
-          location = parts.slice(2).join('-').trim();
-        }
+      const rawDescription = item.querySelector('description')?.textContent || '';
+      
+      // 1. Získáme Typ události z "alt" tagu obrázku v popisu
+      let typeText = '';
+      const altMatch = rawDescription.match(/alt="([^"]+)"/);
+      if (altMatch) {
+        typeText = altMatch[1];
       }
+
+      // 2. Lokace je nyní obsažena přímo v titulku zprávy.
+      // Pro jistotu zkontrolujeme, zda se nevrátili ke starému formátu s pomlčkou
+      let titleForUI = typeText || classifyEventType(fullTitle); 
+      let location = fullTitle.trim();
+      
+      // Fallback pro starý formát (kdyby náhodou)
+      if (fullTitle.includes(' - ') && !typeText) {
+        const parts = fullTitle.split(' - ');
+        titleForUI = parts[0].trim();
+        location = parts.slice(1).join(' - ').trim();
+      }
+
       const pubDateStr = item.querySelector('pubDate')?.textContent || '';
       const pubDate = pubDateStr ? new Date(pubDateStr) : new Date();
-      
-      const rawDescription = item.querySelector('description')?.textContent || '';
+
+
       // Strip HTML tags safely and decode HTML entities if any basic ones exist
       let cleanDescription = rawDescription.replace(/<[^>]*>?/gm, '').trim();
       cleanDescription = cleanDescription.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&');
+      // If description is empty, use type as description
+      if (!cleanDescription) {
+        cleanDescription = titleForUI;
+      }
       
       const coords = assignCoords(location);
-      // Fetch reálné počasí jen pro žhavé (live) události, šetříme requesty
       const weather = coords ? await fetchRealWeather(coords[0], coords[1]) : generateWeather();
 
       return {
         id: `live-${index}`,
-        type: classifyEventType(title),
-        title: title,
+        type: classifyEventType(titleForUI),
+        title: titleForUI,
         location: location,
         description: cleanDescription,
         time: pubDate,
