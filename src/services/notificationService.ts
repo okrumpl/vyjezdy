@@ -78,16 +78,32 @@ export const requestPermission = async (): Promise<boolean> => {
 
 /**
  * Send a local notification for a dispatch event.
+ * Uses Service Worker if available (required for iOS PWAs).
  */
-export const sendNotification = (event: DispatchEvent): void => {
+export const sendNotification = async (event: DispatchEvent): Promise<void> => {
   if (Notification.permission !== 'granted') return;
   try {
+    if ('serviceWorker' in navigator) {
+      const registration = await navigator.serviceWorker.ready;
+      if (registration && registration.showNotification) {
+        await registration.showNotification(`🚒 ${event.type}`, {
+          body: `📍 ${event.location}`,
+          icon: '/icon-192.png',
+          badge: '/icon-192.png',
+          tag: `hzs-${event.id}`,
+          vibrate: [200, 100, 200]
+        } as any);
+        return;
+      }
+    }
+    
+    // Fallback for browsers without SW support
     new Notification(`🚒 ${event.type}`, {
       body: `📍 ${event.location}`,
       icon: '/icon-192.png',
       tag: `hzs-${event.id}`,
     });
-  } catch {
-    // Notification may fail in some contexts
+  } catch (e) {
+    console.error('Notification failed:', e);
   }
 };

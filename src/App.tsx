@@ -91,6 +91,19 @@ function App() {
   useEffect(() => { const t = setInterval(() => setCountdown(p => p > 0 ? p - 1 : REFRESH_INTERVAL / 1000), 1000); return () => clearInterval(t) }, [])
   useEffect(() => { const h = setTimeout(() => setSearchQuery(searchInput), 300); return () => clearTimeout(h) }, [searchInput])
 
+  // Resume from background (iOS PWA fix)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        loadData(true);
+        // Force reset countdown to show fresh cycle
+        setCountdown(REFRESH_INTERVAL / 1000);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [loadData]);
+
   // Keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {

@@ -54,7 +54,7 @@ const fetchRealWeather = async (lat: number, lon: number) => {
   try {
     const res = await fetch(
       `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&wind_speed_unit=kmh`,
-      { signal: AbortSignal.timeout(5000) }
+      { signal: AbortSignal.timeout(3000) }
     );
     if (res.ok) {
       const data = await res.json();
@@ -64,6 +64,13 @@ const fetchRealWeather = async (lat: number, lon: number) => {
           condition: decodeWMO(data.current_weather.weathercode),
           wind: Math.round(data.current_weather.windspeed)
         };
+        
+        // LRU cleanup to prevent memory leaks
+        if (weatherCache.size > 200) {
+          const firstKey = weatherCache.keys().next().value;
+          if (firstKey) weatherCache.delete(firstKey);
+        }
+        
         weatherCache.set(key, { data: result, ts: Date.now() });
         return result;
       }
