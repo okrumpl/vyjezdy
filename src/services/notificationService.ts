@@ -32,78 +32,68 @@ export const loadSettings = (): NotificationSettings => {
   }
 };
 
+function urlB64ToUint8Array(base64String: string) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding)
+    .replace(/\-/g, '+')
+    .replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+export const subscribeToWebPush = async (settings: NotificationSettings) => {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    if (!reg) return;
+
+    // Fetch VAPID key
+    const vapidRes = await fetch('/api/vapidPublicKey');
+    if (!vapidRes.ok) return;
+    const { publicKey } = await vapidRes.json();
+    if (!publicKey) return;
+
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlB64ToUint8Array(publicKey)
+      });
+    }
+
+    // Send sub to backend
+    await fetch('/api/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subscription: sub, filters: settings })
+    });
+    console.log('Successfully subscribed to Web Push');
+  } catch (err) {
+    console.error('Failed to subscribe to Web Push:', err);
+  }
+};
+
 export const saveSettings = (settings: NotificationSettings): void => {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+    subscribeToWebPush(settings); // Update filters on backend
   } catch {
     // localStorage may be full or unavailable
   }
 };
 
-/**
- * Determines whether a given dispatch event matches the user's notification filters.
- * - If `types` is non-empty, the event type must be in the list.
- * - If `localities` is non-empty, at least one locality must be a case-insensitive
- *   substring of the event's location.
- */
-export const shouldNotify = (
-  event: DispatchEvent,
-  settings: NotificationSettings
-): boolean => {
-  if (!settings.enabled) return false;
-
-  // Type filter
-  if (settings.types.length > 0) {
-    if (!settings.types.includes(event.type)) return false;
-  }
-
-  // Locality filter (contains match)
-  if (settings.localities.length > 0) {
-    const loc = event.location.toLowerCase();
-    const matches = settings.localities.some(l => loc.includes(l.toLowerCase()));
-    if (!matches) return false;
-  }
-
-  return true;
-};
-
-/**
- * Request notification permission from the browser. Returns true if granted.
- */
 export const requestPermission = async (): Promise<boolean> => {
   if (!('Notification' in window)) return false;
   const result = await Notification.requestPermission();
   return result === 'granted';
 };
 
-/**
- * Send a local notification for a dispatch event.
- * Uses Service Worker if available (required for iOS PWAs).
- */
-export const sendNotification = async (event: DispatchEvent): Promise<void> => {
-  if (Notification.permission !== 'granted') return;
-  try {
-    if ('serviceWorker' in navigator) {
-      const registration = await navigator.serviceWorker.ready;
-      if (registration && registration.showNotification) {
-        await registration.showNotification(`🚒 ${event.type}`, {
-          body: `📍 ${event.location}`,
-          icon: '/icon-192.png',
-          badge: '/icon-192.png',
-          tag: `hzs-${event.id}`,
-          vibrate: [200, 100, 200]
-        } as any);
-        return;
-      }
-    }
-    
-    // Fallback for browsers without SW support
-    new Notification(`🚒 ${event.type}`, {
-      body: `📍 ${event.location}`,
-      icon: '/icon-192.png',
-      tag: `hzs-${event.id}`,
-    });
-  } catch (e) {
-    console.error('Notification failed:', e);
-  }
+export const sendNotification = async (_event: DispatchEvent): Promise<void> => {
+  // Local polling notification is now disabled in favor of Push Notifications from backend.
+  // We keep this function stubbed out so existing code doesn't break.
 };

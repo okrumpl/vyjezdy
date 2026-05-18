@@ -5,11 +5,9 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      '/api/hzs': {
-        target: 'https://www.hzspa.cz',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/hzs/, '/vyjezdy'),
-        secure: false, // Bypass SSL errors if hzspa.cz has any
+      '/api': {
+        target: 'http://localhost:3001',
+        changeOrigin: true
       }
     }
   }

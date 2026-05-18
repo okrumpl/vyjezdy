@@ -8,7 +8,7 @@ import { TimelineView } from './components/TimelineView'
 import { KPIWidgets } from './components/KPIWidgets'
 import { EventDetailDrawer } from './components/EventDetailDrawer'
 import { NotificationSettings } from './components/NotificationSettings'
-import { NotificationSettings as SettingsType, loadSettings, shouldNotify, sendNotification } from './services/notificationService'
+import { NotificationSettings as SettingsType, loadSettings } from './services/notificationService'
 import {
   Map as MapIcon, List, BarChart3, Search, X,
   BellRing, Filter, ChevronDown, ChevronUp,
@@ -42,7 +42,7 @@ function App() {
   })
   const [pullY, setPullY] = useState(0)
   const touchStartY = useRef(0)
-  const seenEventIds = useRef<Set<string>>(new Set())
+  // seenEventIds no longer used because of backend push
   const [sinceLastEvent, setSinceLastEvent] = useState(0)
 
   // Theme
@@ -57,28 +57,7 @@ function App() {
     setIsRefreshing(true)
     const data = await fetchDispatches()
     
-    // Notification logic
-    if (notificationSettings.enabled) {
-      const liveEvents = data.filter(d => d.source === 'live');
-      
-      // If this is the first load, just populate seen IDs
-      if (seenEventIds.current.size === 0) {
-        liveEvents.forEach(e => seenEventIds.current.add(e.id));
-      } else {
-        // Find new events
-        const newEvents = liveEvents.filter(e => !seenEventIds.current.has(e.id));
-        
-        newEvents.forEach(event => {
-          seenEventIds.current.add(event.id);
-          
-          if (shouldNotify(event, notificationSettings)) {
-            sendNotification(event);
-            setToastMessage({ title: `Nové hlášení: ${event.type}`, desc: event.location });
-            setTimeout(() => setToastMessage(null), 5000);
-          }
-        });
-      }
-    }
+    // Local notification polling removed - handled by Backend Push Notifications
 
     setDispatches(data)
     setIsLive(data.some(d => d.source === 'live'))
